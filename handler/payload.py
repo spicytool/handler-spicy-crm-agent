@@ -40,6 +40,12 @@ class ChatResponse(BaseModel):
     data: ChatData
 
 
+class WebhookResponse(BaseModel):
+    companyId: str
+    userId: str
+    message: str
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str

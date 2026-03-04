@@ -9,6 +9,7 @@ from handler.payload import (
     ChatResponse,
     ErrorDetail,
     ErrorResponse,
+    WebhookResponse,
 )
 
 
@@ -93,6 +94,30 @@ class TestChatResponse:
         dumped = resp.model_dump()
         assert dumped == {"data": {"message": "reply"}}
 
+
+# ---------------------------------------------------------------------------
+# WebhookResponse tests
+# ---------------------------------------------------------------------------
+
+class TestWebhookResponse:
+    def test_valid_response(self):
+        resp = WebhookResponse(companyId="c1", userId="u1", message="reply")
+        assert resp.companyId == "c1"
+        assert resp.userId == "u1"
+        assert resp.message == "reply"
+
+    def test_model_dump_structure(self):
+        resp = WebhookResponse(companyId="c1", userId="u1", message="reply")
+        assert resp.model_dump() == {
+            "companyId": "c1",
+            "userId": "u1",
+            "message": "reply",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Error model tests
+# ---------------------------------------------------------------------------
 
 class TestErrorDetail:
     def test_has_code_and_message_fields(self):

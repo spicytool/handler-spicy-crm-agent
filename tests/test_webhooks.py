@@ -231,3 +231,55 @@ async def test_lifespan_logs_startup_and_shutdown():
 
         shutdown_calls = [c for c in mock_logger.info.call_args_list if "shutdown" in str(c)]
         assert len(shutdown_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test: POST /webhook
+# ---------------------------------------------------------------------------
+
+async def test_webhook_success(client):
+    """Happy path: returns response mirroring request shape with agent reply."""
+    with patch(
+        "handler.webhooks.call_agent_sync",
+        new_callable=AsyncMock,
+        return_value="Encontré 3 contactos con nombre Juan",
+    ):
+        response = await client.post("/webhook", json={
+            "companyId": "c1",
+            "userId": "u1",
+            "message": "Busca contactos con nombre Juan",
+        })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "companyId": "c1",
+        "userId": "u1",
+        "message": "Encontré 3 contactos con nombre Juan",
+    }
+
+
+async def test_webhook_empty_message_422(client):
+    """Empty message fails Pydantic validation → 422."""
+    response = await client.post("/webhook", json={
+        "companyId": "c1",
+        "userId": "u1",
+        "message": "",
+    })
+    assert response.status_code == 422
+
+
+async def test_webhook_user_id_format(client):
+    """Verify call_agent_sync receives 'companyId:userId' format."""
+    mock_sync = AsyncMock(return_value="ok")
+    with patch("handler.webhooks.call_agent_sync", mock_sync):
+        await client.post("/webhook", json={
+            "companyId": "company123",
+            "userId": "user456",
+            "message": "hello",
+        })
+
+    mock_sync.assert_called_once()
+    args = mock_sync.call_args
+    assert args[0][0] == "company123:user456"
+    assert args[0][1] == "hello"

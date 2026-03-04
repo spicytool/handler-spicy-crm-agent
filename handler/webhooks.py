@@ -3,6 +3,7 @@
 Exposes:
 - GET  /health          → liveness probe
 - POST /api/chat        → SSE stream (default) or JSON sync (stream=false)
+- POST /webhook         → SpicyTool interface webhook
 """
 
 import json
@@ -21,6 +22,7 @@ from handler.payload import (
     ChatData,
     ErrorResponse,
     ErrorDetail,
+    WebhookResponse,
 )
 from handler.services import call_agent_streaming, call_agent_sync
 
@@ -83,6 +85,18 @@ async def _event_generator(user_id: str, message: str, trace_id: str):
                 {"code": "agent_error", "message": "Error al procesar tu solicitud"}
             ),
         }
+
+
+@app.post("/webhook")
+async def webhook(payload: ChatRequest):
+    trace_id = uuid.uuid4().hex
+    user_id = f"{payload.companyId}:{payload.userId}"
+    reply = await call_agent_sync(user_id, payload.message, trace_id=trace_id)
+    return WebhookResponse(
+        companyId=payload.companyId,
+        userId=payload.userId,
+        message=reply,
+    )
 
 
 if __name__ == "__main__":
