@@ -12,7 +12,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,6 +24,7 @@ from handler.payload import (
     ErrorDetail,
     WebhookResponse,
 )
+from handler.auth import verify_webhook_token
 from handler.services import call_agent_streaming, call_agent_sync
 
 load_dotenv(override=True)
@@ -87,7 +88,7 @@ async def _event_generator(user_id: str, message: str, trace_id: str):
         }
 
 
-@app.post("/webhook")
+@app.post("/webhook", dependencies=[Depends(verify_webhook_token)])
 async def webhook(payload: ChatRequest):
     trace_id = uuid.uuid4().hex
     user_id = f"{payload.companyId}:{payload.userId}"

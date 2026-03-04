@@ -29,6 +29,9 @@ async def _async_gen_raise(exc):
 # App import (after env is set via autouse fixture in conftest)
 # ---------------------------------------------------------------------------
 
+WEBHOOK_TEST_SECRET = "test-webhook-secret"
+
+
 @pytest.fixture(scope="module", autouse=True)
 def ensure_env():
     """Set env vars before module-level import of services."""
@@ -48,10 +51,11 @@ def app():
 @pytest.fixture
 async def client(app):
     """Async test client for the FastAPI app."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        yield ac
+    with patch("handler.auth.WEBHOOK_SECRET", WEBHOOK_TEST_SECRET):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            yield ac
 
 
 # ---------------------------------------------------------------------------
@@ -244,11 +248,15 @@ async def test_webhook_success(client):
         new_callable=AsyncMock,
         return_value="Encontré 3 contactos con nombre Juan",
     ):
-        response = await client.post("/webhook", json={
-            "companyId": "c1",
-            "userId": "u1",
-            "message": "Busca contactos con nombre Juan",
-        })
+        response = await client.post(
+            "/webhook",
+            json={
+                "companyId": "c1",
+                "userId": "u1",
+                "message": "Busca contactos con nombre Juan",
+            },
+            headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -261,11 +269,15 @@ async def test_webhook_success(client):
 
 async def test_webhook_empty_message_422(client):
     """Empty message fails Pydantic validation → 422."""
-    response = await client.post("/webhook", json={
-        "companyId": "c1",
-        "userId": "u1",
-        "message": "",
-    })
+    response = await client.post(
+        "/webhook",
+        json={
+            "companyId": "c1",
+            "userId": "u1",
+            "message": "",
+        },
+        headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+    )
     assert response.status_code == 422
 
 
@@ -273,11 +285,15 @@ async def test_webhook_user_id_format(client):
     """Verify call_agent_sync receives 'companyId:userId' format."""
     mock_sync = AsyncMock(return_value="ok")
     with patch("handler.webhooks.call_agent_sync", mock_sync):
-        await client.post("/webhook", json={
-            "companyId": "company123",
-            "userId": "user456",
-            "message": "hello",
-        })
+        await client.post(
+            "/webhook",
+            json={
+                "companyId": "company123",
+                "userId": "user456",
+                "message": "hello",
+            },
+            headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+        )
 
     mock_sync.assert_called_once()
     args = mock_sync.call_args
