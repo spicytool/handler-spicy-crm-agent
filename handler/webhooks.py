@@ -3,10 +3,10 @@
 Exposes:
 - GET  /health          → liveness probe
 - POST /api/chat        → SSE stream (default) or JSON sync (stream=false)
-- POST /api/feedback    → submit user feedback
 """
 
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 
@@ -19,23 +19,21 @@ from handler.payload import (
     ChatRequest,
     ChatResponse,
     ChatData,
-    FeedbackRequest,
-    FeedbackResponse,
-    FeedbackData,
     ErrorResponse,
     ErrorDetail,
 )
-from handler.services import call_agent_streaming, call_agent_sync, submit_feedback, log_kv
+from handler.services import call_agent_streaming, call_agent_sync
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    trace_id = uuid.uuid4().hex
-    log_kv("startup", trace_id)
+    logger.info("startup")
     yield
-    log_kv("shutdown", trace_id)
+    logger.info("shutdown")
 
 
 app = FastAPI(
@@ -62,8 +60,8 @@ async def chat(payload: ChatRequest, stream: bool = True):
     try:
         message = await call_agent_sync(user_id, payload.message, trace_id=trace_id)
         return ChatResponse(data=ChatData(message=message))
-    except Exception as e:
-        log_kv("chat_error", trace_id, error=str(e))
+    except Exception as exc:
+        logger.error("chat_error trace_id=%s error=%s", trace_id, exc)
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
@@ -77,28 +75,14 @@ async def _event_generator(user_id: str, message: str, trace_id: str):
         async for chunk in call_agent_streaming(user_id, message, trace_id=trace_id):
             yield {"data": json.dumps({"text": chunk})}
         yield {"data": "[DONE]"}
-    except Exception as e:
-        log_kv("sse_error", trace_id, error=str(e))
+    except Exception as exc:
+        logger.error("sse_error trace_id=%s error=%s", trace_id, exc)
         yield {
             "event": "error",
             "data": json.dumps(
                 {"code": "agent_error", "message": "Error al procesar tu solicitud"}
             ),
         }
-
-
-@app.post("/api/feedback", status_code=201)
-async def feedback(payload: FeedbackRequest):
-    trace_id = uuid.uuid4().hex
-    user_id = f"{payload.companyId}:{payload.userId}"
-    await submit_feedback(
-        user_id=user_id,
-        score=payload.score,
-        text=payload.text,
-        session_id=payload.sessionId,
-        trace_id=trace_id,
-    )
-    return FeedbackResponse(data=FeedbackData(status="submitted"))
 
 
 if __name__ == "__main__":

@@ -9,9 +9,6 @@ from handler.payload import (
     ChatResponse,
     ErrorDetail,
     ErrorResponse,
-    FeedbackData,
-    FeedbackRequest,
-    FeedbackResponse,
 )
 
 
@@ -68,78 +65,8 @@ class TestChatRequest:
         assert req.userId == ""
 
     def test_message_with_leading_trailing_whitespace_is_valid(self):
-        # Non-blank message with surrounding whitespace should be accepted
         req = ChatRequest(companyId="c1", userId="u1", message="  Hello  ")
         assert req.message == "  Hello  "
-
-
-# ---------------------------------------------------------------------------
-# FeedbackRequest tests
-# ---------------------------------------------------------------------------
-
-class TestFeedbackRequest:
-    def test_valid_feedback(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=5)
-        assert req.companyId == "c1"
-        assert req.userId == "u1"
-        assert req.score == 5
-
-    def test_score_minimum_valid(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=1)
-        assert req.score == 1
-
-    def test_score_zero_rejected(self):
-        with pytest.raises(ValidationError):
-            FeedbackRequest(companyId="c1", userId="u1", score=0)
-
-    def test_score_six_rejected(self):
-        with pytest.raises(ValidationError):
-            FeedbackRequest(companyId="c1", userId="u1", score=6)
-
-    def test_score_negative_rejected(self):
-        with pytest.raises(ValidationError):
-            FeedbackRequest(companyId="c1", userId="u1", score=-1)
-
-    def test_optional_text_field_defaults_none(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=3)
-        assert req.text is None
-
-    def test_optional_text_field_set(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=3, text="Great!")
-        assert req.text == "Great!"
-
-    def test_optional_sessionId_defaults_none(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=3)
-        assert req.sessionId is None
-
-    def test_optional_sessionId_set(self):
-        req = FeedbackRequest(companyId="c1", userId="u1", score=3, sessionId="sess-99")
-        assert req.sessionId == "sess-99"
-
-    def test_mongodb_oid_coercion_companyId(self):
-        req = FeedbackRequest(
-            companyId={"$oid": "abc123"},
-            userId="u1",
-            score=4,
-        )
-        assert req.companyId == "abc123"
-
-    def test_mongodb_oid_coercion_userId(self):
-        req = FeedbackRequest(
-            companyId="c1",
-            userId={"$oid": "xyz789"},
-            score=2,
-        )
-        assert req.userId == "xyz789"
-
-    def test_mongodb_oid_coercion_both(self):
-        req = FeedbackRequest(
-            companyId={"$oid": "abc123"},
-            userId={"$oid": "def456"},
-            score=5,
-        )
-        assert req.companyId == "abc123"
-        assert req.userId == "def456"
 
 
 # ---------------------------------------------------------------------------
@@ -165,27 +92,6 @@ class TestChatResponse:
         resp = ChatResponse(data=ChatData(message="reply"))
         dumped = resp.model_dump()
         assert dumped == {"data": {"message": "reply"}}
-
-
-class TestFeedbackData:
-    def test_has_status_field(self):
-        data = FeedbackData(status="ok")
-        assert data.status == "ok"
-
-    def test_model_dump(self):
-        data = FeedbackData(status="accepted")
-        assert data.model_dump() == {"status": "accepted"}
-
-
-class TestFeedbackResponse:
-    def test_wraps_feedback_data(self):
-        resp = FeedbackResponse(data=FeedbackData(status="ok"))
-        assert resp.data.status == "ok"
-
-    def test_model_dump_structure(self):
-        resp = FeedbackResponse(data=FeedbackData(status="ok"))
-        dumped = resp.model_dump()
-        assert dumped == {"data": {"status": "ok"}}
 
 
 class TestErrorDetail:

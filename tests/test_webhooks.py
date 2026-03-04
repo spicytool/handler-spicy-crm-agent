@@ -4,7 +4,6 @@ import json
 import os
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from unittest.mock import AsyncMock, patch, MagicMock
 
@@ -21,7 +20,6 @@ async def _async_gen(*chunks):
 
 async def _async_gen_raise(exc):
     """Helper: async generator that raises after starting."""
-    # Yield nothing, then raise — simulates a streaming error
     if False:  # pragma: no cover
         yield  # make it an async generator
     raise exc
@@ -42,8 +40,7 @@ def ensure_env():
 @pytest.fixture
 def app():
     """Import and return the FastAPI app, patching services at module import."""
-    with patch("handler.services.Client"), \
-         patch("handler.services.agent_engines"):
+    with patch("handler.services.Client"):
         from handler.webhooks import app as _app
         return _app
 
@@ -177,67 +174,12 @@ async def test_chat_whitespace_message_returns_422(client):
 
 
 # ---------------------------------------------------------------------------
-# Test: POST /api/feedback
-# ---------------------------------------------------------------------------
-
-async def test_feedback_valid_returns_201(client):
-    """Valid feedback returns 201 with submitted status."""
-    with patch("handler.webhooks.submit_feedback", new_callable=AsyncMock, return_value={"status": "accepted"}):
-        response = await client.post("/api/feedback", json={
-            "companyId": "c1",
-            "userId": "u1",
-            "score": 3,
-        })
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["data"]["status"] == "submitted"
-
-
-async def test_feedback_invalid_score_zero_returns_422(client):
-    """Score of 0 is out of range → 422."""
-    response = await client.post("/api/feedback", json={
-        "companyId": "c1",
-        "userId": "u1",
-        "score": 0,
-    })
-    assert response.status_code == 422
-
-
-async def test_feedback_invalid_score_six_returns_422(client):
-    """Score of 6 is out of range → 422."""
-    response = await client.post("/api/feedback", json={
-        "companyId": "c1",
-        "userId": "u1",
-        "score": 6,
-    })
-    assert response.status_code == 422
-
-
-async def test_feedback_with_optional_fields(client):
-    """Feedback with optional text and sessionId → 201."""
-    with patch("handler.webhooks.submit_feedback", new_callable=AsyncMock, return_value={"status": "accepted"}):
-        response = await client.post("/api/feedback", json={
-            "companyId": "c1",
-            "userId": "u1",
-            "score": 5,
-            "text": "Great experience",
-            "sessionId": "sess-123",
-        })
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["data"]["status"] == "submitted"
-
-
-# ---------------------------------------------------------------------------
 # Test: _event_generator directly
 # ---------------------------------------------------------------------------
 
 async def test_event_generator_yields_chunks_and_done():
     """Test _event_generator async generator directly."""
-    with patch("handler.services.Client"), \
-         patch("handler.services.agent_engines"):
+    with patch("handler.services.Client"):
         from handler.webhooks import _event_generator
 
     with patch(
@@ -255,8 +197,7 @@ async def test_event_generator_yields_chunks_and_done():
 
 async def test_event_generator_yields_error_event_on_exception():
     """Test _event_generator emits error event when exception raised."""
-    with patch("handler.services.Client"), \
-         patch("handler.services.agent_engines"):
+    with patch("handler.services.Client"):
         from handler.webhooks import _event_generator
 
     with patch(
@@ -280,14 +221,13 @@ async def test_event_generator_yields_error_event_on_exception():
 
 async def test_lifespan_logs_startup_and_shutdown():
     """Lifespan context manager logs startup and shutdown."""
-    with patch("handler.services.Client"), \
-         patch("handler.services.agent_engines"):
+    with patch("handler.services.Client"):
         from handler.webhooks import lifespan, app as _app
 
-    with patch("handler.webhooks.log_kv") as mock_log:
+    with patch("handler.webhooks.logger") as mock_logger:
         async with lifespan(_app):
-            startup_calls = [c for c in mock_log.call_args_list if c.args[0] == "startup"]
+            startup_calls = [c for c in mock_logger.info.call_args_list if "startup" in str(c)]
             assert len(startup_calls) == 1
 
-        shutdown_calls = [c for c in mock_log.call_args_list if c.args[0] == "shutdown"]
+        shutdown_calls = [c for c in mock_logger.info.call_args_list if "shutdown" in str(c)]
         assert len(shutdown_calls) == 1

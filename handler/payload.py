@@ -1,8 +1,8 @@
 """Pydantic v2 models for request/response payloads."""
 
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 def _coerce_oid(value: Any) -> str:
@@ -32,33 +32,12 @@ class ChatRequest(BaseModel):
         return value
 
 
-class FeedbackRequest(BaseModel):
-    companyId: str
-    userId: str
-    score: int = Field(ge=1, le=5)
-    text: Optional[str] = None
-    sessionId: Optional[str] = None
-
-    @field_validator("companyId", "userId", mode="before")
-    @classmethod
-    def coerce_oid(cls, value: Any) -> str:
-        return _coerce_oid(value)
-
-
 class ChatData(BaseModel):
     message: str
 
 
 class ChatResponse(BaseModel):
     data: ChatData
-
-
-class FeedbackData(BaseModel):
-    status: str
-
-
-class FeedbackResponse(BaseModel):
-    data: FeedbackData
 
 
 class ErrorDetail(BaseModel):
