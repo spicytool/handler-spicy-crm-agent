@@ -14,7 +14,7 @@ def set_required_env(monkeypatch):
     monkeypatch.setenv("AGENT_ENGINE_ID", "test-engine-id")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-    monkeypatch.setenv("WEBHOOK_SECRET_LOCAL", "test-secret")
+    monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
 
 
 # ---------------------------------------------------------------------------

@@ -5,10 +5,7 @@ import os
 
 from fastapi import Depends, HTTPException, Request
 
-WEBHOOK_SECRET = (
-    os.environ.get("WEBHOOK_SECRET_PRODUCTION")
-    or os.environ.get("WEBHOOK_SECRET_LOCAL", "")
-)
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
 
 async def verify_webhook_token(request: Request) -> None:
