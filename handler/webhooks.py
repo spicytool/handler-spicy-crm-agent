@@ -55,7 +55,7 @@ async def health():
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, stream: bool = True):
     trace_id = uuid.uuid4().hex
-    user_id = f"{payload.companyId}:{payload.userId}"
+    user_id = f"{payload.companyId}:{payload.userId}:{payload.userEmail}"
 
     if stream:
         return EventSourceResponse(_event_generator(user_id, payload.message, trace_id))
@@ -91,7 +91,7 @@ async def _event_generator(user_id: str, message: str, trace_id: str):
 @app.post("/webhook", dependencies=[Depends(verify_webhook_token)])
 async def webhook(payload: ChatRequest):
     trace_id = uuid.uuid4().hex
-    user_id = f"{payload.companyId}:{payload.userId}"
+    user_id = f"{payload.companyId}:{payload.userId}:{payload.userEmail}"
     reply = await call_agent_sync(user_id, payload.message, trace_id=trace_id)
     return WebhookResponse(
         companyId=payload.companyId,

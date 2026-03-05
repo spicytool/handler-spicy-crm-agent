@@ -69,6 +69,31 @@ class TestChatRequest:
         req = ChatRequest(companyId="c1", userId="u1", message="  Hello  ")
         assert req.message == "  Hello  "
 
+    def test_userEmail_defaults_to_empty_string(self):
+        req = ChatRequest(companyId="c1", userId="u1", message="Hello")
+        assert req.userEmail == ""
+
+    def test_userEmail_accepted_when_provided(self):
+        req = ChatRequest(
+            companyId="c1", userId="u1", message="Hello",
+            userEmail="test@example.com",
+        )
+        assert req.userEmail == "test@example.com"
+
+    def test_userEmail_strips_whitespace(self):
+        req = ChatRequest(
+            companyId="c1", userId="u1", message="Hello",
+            userEmail="  test@example.com  ",
+        )
+        assert req.userEmail == "test@example.com"
+
+    def test_userEmail_none_coerced_to_empty_string(self):
+        req = ChatRequest(
+            companyId="c1", userId="u1", message="Hello",
+            userEmail=None,
+        )
+        assert req.userEmail == ""
+
 
 # ---------------------------------------------------------------------------
 # Response envelope tests

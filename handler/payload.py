@@ -18,11 +18,19 @@ class ChatRequest(BaseModel):
     companyId: str
     userId: str
     message: str
+    userEmail: str = ""
 
     @field_validator("companyId", "userId", mode="before")
     @classmethod
     def coerce_oid(cls, value: Any) -> str:
         return _coerce_oid(value)
+
+    @field_validator("userEmail", mode="before")
+    @classmethod
+    def strip_email(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
 
     @field_validator("message")
     @classmethod

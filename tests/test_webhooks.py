@@ -282,7 +282,7 @@ async def test_webhook_empty_message_422(client):
 
 
 async def test_webhook_user_id_format(client):
-    """Verify call_agent_sync receives 'companyId:userId' format."""
+    """Verify call_agent_sync receives 'companyId:userId:userEmail' format."""
     mock_sync = AsyncMock(return_value="ok")
     with patch("handler.webhooks.call_agent_sync", mock_sync):
         await client.post(
@@ -297,5 +297,26 @@ async def test_webhook_user_id_format(client):
 
     mock_sync.assert_called_once()
     args = mock_sync.call_args
-    assert args[0][0] == "company123:user456"
+    assert args[0][0] == "company123:user456:"
+    assert args[0][1] == "hello"
+
+
+async def test_webhook_user_id_format_with_email(client):
+    """Verify call_agent_sync receives userEmail in composite user_id."""
+    mock_sync = AsyncMock(return_value="ok")
+    with patch("handler.webhooks.call_agent_sync", mock_sync):
+        await client.post(
+            "/webhook",
+            json={
+                "companyId": "company123",
+                "userId": "user456",
+                "userEmail": "owner@example.com",
+                "message": "hello",
+            },
+            headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+        )
+
+    mock_sync.assert_called_once()
+    args = mock_sync.call_args
+    assert args[0][0] == "company123:user456:owner@example.com"
     assert args[0][1] == "hello"
