@@ -123,20 +123,3 @@ async def test_health_no_auth_required(client):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-
-# ---------------------------------------------------------------------------
-# Chat endpoint remains open
-# ---------------------------------------------------------------------------
-
-async def test_chat_no_auth_required(client):
-    """POST /api/chat works without auth header."""
-    with patch(
-        "handler.webhooks.call_agent_sync",
-        new_callable=AsyncMock,
-        return_value="reply",
-    ):
-        response = await client.post(
-            "/api/chat?stream=false",
-            json=VALID_PAYLOAD,
-        )
-    assert response.status_code == 200

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-FastAPI handler service for the SpicyTool CRM agent. Sits between chat UI clients and the Vertex AI Agent Engine (`spicytool-crud-agent`), providing auth, session management, and SSE+JSON streaming. Deployed to Cloud Run.
+FastAPI handler service for the SpicyTool CRM agent. Sits between chat UI clients and the Vertex AI Agent Engine (`spicytool-crud-agent`), providing auth, session management, and JSON responses. Deployed to Cloud Run.
 
 ## Commands
 
@@ -31,21 +31,18 @@ pytest --cov=handler --cov-report=term-missing  # with coverage
 
 ```
 Client request
-  → handler/webhooks.py   (FastAPI routes: /health, /api/chat, /webhook)
+  → handler/webhooks.py   (FastAPI routes: /health, /webhook)
   → handler/auth.py       (Bearer token verification via WEBHOOK_SECRET)
   → handler/payload.py    (Pydantic v2 request/response models)
   → handler/services.py   (Vertex AI session mgmt + streaming bridge)
   → Vertex AI Agent Engine (remote CRM agent)
 ```
 
-**Three endpoints:**
+**Two endpoints:**
 - `GET /health` — liveness probe
-- `POST /api/chat` — SSE streaming (default) or JSON sync (`?stream=false`). No auth required.
 - `POST /webhook` — synchronous JSON, requires `Authorization: Bearer <WEBHOOK_SECRET>`
 
 **Session management** (`services.py`): Sessions are keyed by `companyId:userId`. The handler lists existing sessions via `client.agent_engines.sessions.list` with a filter, reuses the first match, or creates a new one. All calls use a `trace_id` for log correlation.
-
-**Streaming flow**: `call_agent_streaming` → `_find_or_create_session` → `stream_agent_events` (yields text chunks from `async_stream_query`) → SSE `EventSourceResponse` in webhooks.py. Fallback message in Spanish if no chunks produced.
 
 ## Key Conventions
 
