@@ -147,6 +147,7 @@ async def _find_or_create_session(
             created = client.agent_engines.sessions.create(
                 name=AGENT_ENGINE_ID,
                 user_id=user_id,
+                ttl="28800s",  # 8-hour session TTL (resets on each interaction)
             )
             session_id = extract_session_id(created)
             logger.info("session_created id=%s trace_id=%s", session_id, trace_id)
