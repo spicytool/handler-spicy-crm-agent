@@ -3,6 +3,7 @@
 Bridges the FastAPI handler to the Vertex AI Agent Engine via streaming.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -23,21 +24,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "spicy-crm-handler")
+MAX_RESPONSE_CHARS = 50_000
+
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "spicytool-crud-agent")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
 
-# AGENT_ENGINE_ID — required, no hardcoded fallback
+# AGENT_ENGINE_ID — validated in lifespan, not at import time
 _raw_agent_engine_id = os.getenv("AGENT_ENGINE_ID", "")
-if not _raw_agent_engine_id:
-    raise RuntimeError("AGENT_ENGINE_ID environment variable is required")
-
 AGENT_ENGINE_ID = (
     _raw_agent_engine_id
-    if "/" in _raw_agent_engine_id
+    if not _raw_agent_engine_id or "/" in _raw_agent_engine_id
     else f"projects/{PROJECT_ID}/locations/{LOCATION}/reasoningEngines/{_raw_agent_engine_id}"
 )
 
 client = Client(project=PROJECT_ID, location=LOCATION)
+
+# Populated by lifespan — do not access before startup completes
+_agent_engine: Any = None
+_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def _log_user_id(user_id: str) -> str:
+    """Return companyId:userId only — strip email for PII compliance."""
+    parts = user_id.split(":", 2)
+    return ":".join(parts[:2])
 
 
 # ---------------------------------------------------------------------------
@@ -117,43 +127,49 @@ async def _find_or_create_session(
     """Find an existing session for user_id or create one.
 
     Returns (agent_engine, session_id).
+    Uses a per-user lock to prevent duplicate session creation under concurrency.
     """
-    agent_engine = client.agent_engines.get(name=AGENT_ENGINE_ID)
+    agent_engine = _agent_engine
+    if agent_engine is None:
+        raise RuntimeError("agent_engine not initialized — lifespan not complete")
 
-    filter_expr = f"user_id={json.dumps(user_id)}"
-    sessions: list[Any] = []
+    lock = _session_locks.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        filter_expr = f"user_id={json.dumps(user_id)}"
+        sessions: list[Any] = []
 
-    logger.info("session_list user_id=%s trace_id=%s", user_id, trace_id)
-    try:
-        sessions = list(
-            client.agent_engines.sessions.list(
-                name=AGENT_ENGINE_ID,
-                config={"filter": filter_expr},
-            )
-        )
-        logger.info("session_list_done user_id=%s found=%d trace_id=%s", user_id, len(sessions), trace_id)
-    except Exception as exc:
-        logger.warning("session_list_error user_id=%s error=%s trace_id=%s", user_id, exc, trace_id)
-
-    session_id: Optional[str] = None
-
-    if sessions:
-        session_id = extract_session_id(sessions[0])
-        logger.info("session_selected id=%s trace_id=%s", session_id, trace_id)
-
-    if not session_id:
-        logger.info("session_create user_id=%s trace_id=%s", user_id, trace_id)
+        log_id = _log_user_id(user_id)
+        logger.info("session_list user_id=%s trace_id=%s", log_id, trace_id)
         try:
-            created = client.agent_engines.sessions.create(
-                name=AGENT_ENGINE_ID,
-                user_id=user_id,
-                ttl="28800s",  # 8-hour session TTL (resets on each interaction)
+            sessions = list(
+                client.agent_engines.sessions.list(
+                    name=AGENT_ENGINE_ID,
+                    config={"filter": filter_expr},
+                )
             )
-            session_id = extract_session_id(created)
-            logger.info("session_created id=%s trace_id=%s", session_id, trace_id)
-        except Exception:
-            logger.exception("session_create_error user_id=%s trace_id=%s", user_id, trace_id)
-            raise
+            logger.info("session_list_done user_id=%s found=%d trace_id=%s", log_id, len(sessions), trace_id)
+        except Exception as exc:
+            logger.warning("session_list_error user_id=%s error=%s trace_id=%s", log_id, exc, trace_id)
+
+        session_id: Optional[str] = None
+
+        if sessions:
+            session_id = extract_session_id(sessions[0])
+            logger.info("session_selected id=%s trace_id=%s", session_id, trace_id)
+
+        if not session_id:
+            logger.info("session_create user_id=%s trace_id=%s", log_id, trace_id)
+            try:
+                created = client.agent_engines.sessions.create(
+                    name=AGENT_ENGINE_ID,
+                    user_id=user_id,
+                    ttl="28800s",  # 8-hour session TTL (resets on each interaction)
+                )
+                session_id = extract_session_id(created)
+                logger.info("session_created id=%s trace_id=%s", session_id, trace_id)
+            except Exception:
+                logger.exception("session_create_error user_id=%s trace_id=%s", log_id, trace_id)
+                raise
 
     return agent_engine, session_id  # type: ignore[return-value]
 
@@ -171,7 +187,8 @@ async def stream_agent_events(
     trace_id: str,
 ) -> AsyncGenerator[str, None]:
     """Call agent_engine.async_stream_query and yield text chunks."""
-    logger.info("query_start user_id=%s session_id=%s trace_id=%s", user_id, session_id, trace_id)
+    log_id = _log_user_id(user_id)
+    logger.info("query_start user_id=%s session_id=%s trace_id=%s", log_id, session_id, trace_id)
 
     total_events = 0
     total_text_chunks = 0
@@ -215,7 +232,8 @@ async def call_agent_streaming(
         yield chunk
 
     if not chunks_seen:
-        logger.info("query_fallback user_id=%s trace_id=%s", user_id, trace_id)
+        log_id = _log_user_id(user_id)
+        logger.info("query_fallback user_id=%s trace_id=%s", log_id, trace_id)
         yield "Lo siento, no pude procesar tu mensaje. Podrías intentar de nuevo?"
 
 
@@ -225,13 +243,22 @@ async def call_agent_sync(
     *,
     trace_id: Optional[str] = None,
 ) -> str:
-    """Drive call_agent_streaming and aggregate into a single string."""
+    """Drive call_agent_streaming, aggregate into a single string.
+
+    Applies a 240s timeout and truncates at MAX_RESPONSE_CHARS.
+    Errors propagate to the caller (no blanket catch).
+    """
     trace_id = trace_id or uuid.uuid4().hex
-    try:
+
+    async def _gather() -> str:
         parts: list[str] = []
+        total = 0
         async for chunk in call_agent_streaming(user_id, message, trace_id=trace_id):
             parts.append(chunk)
-        return "".join(parts)
-    except Exception as exc:
-        logger.error("call_agent_sync_error user_id=%s error=%s trace_id=%s", user_id, exc, trace_id)
-        return "Lo siento, hubo un error al procesar tu mensaje. Por favor intenta de nuevo."
+            total += len(chunk)
+            if total >= MAX_RESPONSE_CHARS:
+                logger.warning("response_truncated trace_id=%s", trace_id)
+                break
+        return "".join(parts)[:MAX_RESPONSE_CHARS]
+
+    return await asyncio.wait_for(_gather(), timeout=240.0)

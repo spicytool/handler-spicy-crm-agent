@@ -40,24 +40,7 @@ class ChatRequest(BaseModel):
         return value
 
 
-class ChatData(BaseModel):
-    message: str
-
-
-class ChatResponse(BaseModel):
-    data: ChatData
-
-
 class WebhookResponse(BaseModel):
     companyId: str
     userId: str
     message: str
-
-
-class ErrorDetail(BaseModel):
-    code: str
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorDetail

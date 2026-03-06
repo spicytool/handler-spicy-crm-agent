@@ -1,5 +1,6 @@
 """Tests for handler/webhooks.py FastAPI endpoints."""
 
+import asyncio
 import os
 
 import pytest
@@ -51,21 +52,68 @@ async def test_health_returns_ok(client):
 
 
 # ---------------------------------------------------------------------------
-# Test: lifespan (startup/shutdown logging)
+# Test: lifespan (startup/shutdown + validation)
 # ---------------------------------------------------------------------------
 
-async def test_lifespan_logs_startup_and_shutdown():
-    """Lifespan context manager logs startup and shutdown."""
+async def test_lifespan_caches_agent_engine():
+    """Lifespan calls client.agent_engines.get exactly once and caches result."""
+    import handler.services as _svc
+
+    mock_client = MagicMock()
+    mock_engine = MagicMock()
+    mock_client.agent_engines.get.return_value = mock_engine
+
     with patch("handler.services.Client"):
         from handler.webhooks import lifespan, app as _app
 
-    with patch("handler.webhooks.logger") as mock_logger:
+    with patch.object(_svc, "client", mock_client), \
+         patch.object(_svc, "_agent_engine", None), \
+         patch("handler.auth.WEBHOOK_SECRET", "valid"), \
+         patch.object(_svc, "AGENT_ENGINE_ID", "test-engine"):
         async with lifespan(_app):
-            startup_calls = [c for c in mock_logger.info.call_args_list if "startup" in str(c)]
-            assert len(startup_calls) == 1
+            assert _svc._agent_engine is mock_engine
 
-        shutdown_calls = [c for c in mock_logger.info.call_args_list if "shutdown" in str(c)]
-        assert len(shutdown_calls) == 1
+        assert _svc._agent_engine is None  # cleaned up on shutdown
+        mock_client.agent_engines.get.assert_called_once_with(name="test-engine")
+
+
+async def test_lifespan_raises_if_webhook_secret_empty():
+    """Lifespan raises RuntimeError when WEBHOOK_SECRET is empty."""
+    with patch("handler.services.Client"):
+        from handler.webhooks import lifespan, app as _app
+
+    with patch("handler.auth.WEBHOOK_SECRET", ""):
+        with pytest.raises(RuntimeError, match="WEBHOOK_SECRET"):
+            async with lifespan(_app):
+                pass
+
+
+async def test_lifespan_raises_if_agent_engine_id_empty():
+    """Lifespan raises RuntimeError when AGENT_ENGINE_ID is empty."""
+    import handler.services as _svc
+
+    with patch("handler.services.Client"):
+        from handler.webhooks import lifespan, app as _app
+
+    with patch("handler.auth.WEBHOOK_SECRET", "valid"), \
+         patch.object(_svc, "AGENT_ENGINE_ID", ""):
+        with pytest.raises(RuntimeError, match="AGENT_ENGINE_ID"):
+            async with lifespan(_app):
+                pass
+
+
+async def test_lifespan_raises_if_agent_engine_id_bare_prefix():
+    """Lifespan catches AGENT_ENGINE_ID expanded from empty bare ID."""
+    import handler.services as _svc
+
+    with patch("handler.services.Client"):
+        from handler.webhooks import lifespan, app as _app
+
+    with patch("handler.auth.WEBHOOK_SECRET", "valid"), \
+         patch.object(_svc, "AGENT_ENGINE_ID", "projects/p/locations/l/reasoningEngines/"):
+        with pytest.raises(RuntimeError, match="AGENT_ENGINE_ID"):
+            async with lifespan(_app):
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -151,3 +199,55 @@ async def test_webhook_user_id_format_with_email(client):
     args = mock_sync.call_args
     assert args[0][0] == "company123:user456:owner@example.com"
     assert args[0][1] == "hello"
+
+
+async def test_webhook_returns_503_on_agent_error(client):
+    """Agent RuntimeError → HTTP 503."""
+    with patch(
+        "handler.webhooks.call_agent_sync",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("vertex AI down"),
+    ):
+        response = await client.post(
+            "/webhook",
+            json={"companyId": "c1", "userId": "u1", "message": "hi"},
+            headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+        )
+
+    assert response.status_code == 503
+
+
+async def test_webhook_returns_503_on_timeout(client):
+    """Agent timeout → HTTP 503."""
+    with patch(
+        "handler.webhooks.call_agent_sync",
+        new_callable=AsyncMock,
+        side_effect=asyncio.TimeoutError,
+    ):
+        response = await client.post(
+            "/webhook",
+            json={"companyId": "c1", "userId": "u1", "message": "hi"},
+            headers={"Authorization": f"Bearer {WEBHOOK_TEST_SECRET}"},
+        )
+
+    assert response.status_code == 503
+    assert "tiempo" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Test: docs endpoints disabled
+# ---------------------------------------------------------------------------
+
+async def test_docs_endpoint_returns_404(client):
+    response = await client.get("/docs")
+    assert response.status_code == 404
+
+
+async def test_redoc_endpoint_returns_404(client):
+    response = await client.get("/redoc")
+    assert response.status_code == 404
+
+
+async def test_openapi_json_returns_404(client):
+    response = await client.get("/openapi.json")
+    assert response.status_code == 404
