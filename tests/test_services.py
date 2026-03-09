@@ -176,6 +176,9 @@ class TestFindOrCreateSession:
             )
 
         mock_client.agent_engines.sessions.create.assert_called_once()
+        call_kwargs = mock_client.agent_engines.sessions.create.call_args.kwargs
+        assert call_kwargs["config"]["ttl"] == "86400s", \
+            f"Session TTL must be passed inside config dict, got {call_kwargs!r}"
         assert session_id == "new-sess"
 
     @pytest.mark.asyncio
@@ -460,6 +463,24 @@ class TestProjectIdDefault:
         finally:
             if original is not None:
                 os.environ["GOOGLE_CLOUD_PROJECT"] = original
+
+
+# ---------------------------------------------------------------------------
+# SESSION_TTL constant
+# ---------------------------------------------------------------------------
+
+class TestSessionTtl:
+    def test_ttl_is_24_hours(self):
+        """SESSION_TTL must be 86400s (24h) — Vertex AI minimum."""
+        from handler.services import SESSION_TTL
+        assert SESSION_TTL == "86400s"
+
+    def test_ttl_format_is_seconds_string(self):
+        """SESSION_TTL must be a string like '86400s'."""
+        from handler.services import SESSION_TTL
+        assert isinstance(SESSION_TTL, str)
+        assert SESSION_TTL.endswith("s")
+        int(SESSION_TTL.rstrip("s"))  # must be parseable as int
 
 
 # ---------------------------------------------------------------------------

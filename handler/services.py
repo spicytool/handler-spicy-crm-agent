@@ -25,6 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_CHARS = 50_000
+SESSION_TTL = "86400s"  # 24-hour session TTL (Vertex AI minimum)
 
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "spicytool-crud-agent")
 LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
@@ -163,7 +164,7 @@ async def _find_or_create_session(
                 created = client.agent_engines.sessions.create(
                     name=AGENT_ENGINE_ID,
                     user_id=user_id,
-                    ttl="28800s",  # 8-hour session TTL (resets on each interaction)
+                    config={"ttl": SESSION_TTL},
                 )
                 session_id = extract_session_id(created)
                 logger.info("session_created id=%s trace_id=%s", session_id, trace_id)
